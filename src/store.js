@@ -28,6 +28,12 @@ export function assertValidPortId(portId) {
   }
 }
 
+export function assertValidEventId(eventId) {
+  if (typeof eventId !== "string" || !/^evt-\d{4,}$/.test(eventId)) {
+    throw new StateportError(`Invalid Semantic Timeline event ID: ${eventId}`);
+  }
+}
+
 export function stateportRoot(workspaceRoot) {
   return path.join(workspaceRoot, ".stateport");
 }
@@ -136,6 +142,22 @@ function validateTimelineEvent(event, file) {
     }
   }
 
+  try {
+    assertValidEventId(event.event_id);
+  } catch {
+    throw new StateportError(`Malformed Session Port JSON: ${file} (timeline.event_id)`);
+  }
+
+  const allowedTypes = new Set(["intent", "mark", "decision", "change", "failed", "verified", "handoff", "closed", "next"]);
+  if (!allowedTypes.has(event.type)) {
+    throw new StateportError(`Malformed Session Port JSON: ${file} (timeline.type)`);
+  }
+
+  const allowedClaims = new Set(["confirmed", "user-authored", "inferred", "unknown"]);
+  if (!allowedClaims.has(event.claim)) {
+    throw new StateportError(`Malformed Session Port JSON: ${file} (timeline.claim)`);
+  }
+
   validateGitShape(
     {
       ...event.git,
@@ -176,8 +198,14 @@ function validatePortShape(port, file) {
     throw new StateportError(`Malformed Session Port JSON: ${file} (timeline)`);
   }
 
-  for (const event of port.timeline) {
+  const eventIds = new Set();
+  for (const [index, event] of port.timeline.entries()) {
     validateTimelineEvent(event, file);
+    const expectedEventId = `evt-${String(index + 1).padStart(4, "0")}`;
+    if (event.event_id !== expectedEventId || eventIds.has(event.event_id)) {
+      throw new StateportError(`Malformed Session Port JSON: ${file} (timeline.event_id)`);
+    }
+    eventIds.add(event.event_id);
   }
 
   if (!Array.isArray(port.evidence) || !Array.isArray(port.agent_sessions)) {

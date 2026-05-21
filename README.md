@@ -14,6 +14,15 @@ npm run stateport -- capsule latest --for codex
 npm run stateport -- continue latest
 ```
 
+To continue from a specific Semantic Timeline moment, pass its event id:
+
+```bash
+npm run stateport -- capsule latest --for codex --from evt-0002
+npm run stateport -- continue latest --from evt-0002
+```
+
+`--from` filters the rendered capsule at output time. It does not mutate the source port JSON and does not create separate partial Replay Room files.
+
 For non-interactive use, pass closeout answers directly:
 
 ```bash

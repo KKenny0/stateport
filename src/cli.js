@@ -14,8 +14,8 @@ Usage:
   stateport start <title>
   stateport mark <text>
   stateport end [--changed <text>] [--decision <text>] [--next <text>]
-  stateport capsule <port-id|latest> --for <generic|codex|claude>
-  stateport continue <port-id|latest> [--for <generic|codex|claude>]
+  stateport capsule <port-id|latest> --for <generic|codex|claude> [--from <event-id>]
+  stateport continue <port-id|latest> [--for <generic|codex|claude>] [--from <event-id>]
 `;
 }
 
@@ -70,6 +70,9 @@ function parseTarget(args, defaultTarget = "generic") {
         type: "string",
         short: "f",
         default: defaultTarget
+      },
+      from: {
+        type: "string"
       }
     }
   });
@@ -81,7 +84,8 @@ function parseTarget(args, defaultTarget = "generic") {
 
   return {
     id: parsed.positionals[0] || "latest",
-    target
+    target,
+    from: parsed.values.from
   };
 }
 
@@ -130,20 +134,22 @@ async function run(argv) {
   }
 
   if (command === "capsule") {
-    const { id, target } = parseTarget(args);
+    const { id, target, from } = parseTarget(args);
     const { root, port } = await loadRequestedPort(id);
+    const capsule = renderCapsule(port, target, { from });
     await writeReplayRoom(port, stateportRoot(root));
-    process.stdout.write(renderCapsule(port, target));
+    process.stdout.write(capsule);
     return;
   }
 
   if (command === "continue") {
-    const { id, target } = parseTarget(args);
+    const { id, target, from } = parseTarget(args);
     const { root, port } = await loadRequestedPort(id);
+    const capsule = renderCapsule(port, target, { from });
     await writeReplayRoom(port, stateportRoot(root));
     process.stdout.write(`Stateport continuation preview: ${port.port_id}\n`);
     process.stdout.write(`Capsule target: ${target}\n\n`);
-    process.stdout.write(renderCapsule(port, target));
+    process.stdout.write(capsule);
     return;
   }
 

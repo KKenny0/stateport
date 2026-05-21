@@ -174,6 +174,93 @@ test("CLI smoke flow creates replay room artifacts and supports latest", async (
   assert.match(await readFile(path.join(room, "capsule.claude.md"), "utf8"), /Stateport Agent Capsule \(claude\)/);
 });
 
+test("capsule can focus continuation from a specific Semantic Timeline event", async (t) => {
+  const cwd = await tempWorkspace(t);
+  assert.equal(spawnSync(process.execPath, [cliPath, "start", "focused continuation"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "first semantic mark"], { cwd }).status, 0);
+  assert.equal(
+    spawnSync(
+      process.execPath,
+      [
+        cliPath,
+        "end",
+        "--changed",
+        "changed after mark",
+        "--decision",
+        "decision after mark",
+        "--next",
+        "next after mark"
+      ],
+      { cwd }
+    ).status,
+    0
+  );
+
+  const capsule = spawnSync(process.execPath, [cliPath, "capsule", "latest", "--for", "codex", "--from", "evt-0002"], {
+    cwd,
+    encoding: "utf8"
+  });
+
+  assert.equal(capsule.status, 0, capsule.stderr);
+  assert.match(capsule.stdout, /## Continuation Point/);
+  assert.match(capsule.stdout, /Event: evt-0002 mark/);
+  assert.match(capsule.stdout, /\[user-authored\] Event text:/);
+  assert.match(capsule.stdout, /first semantic mark/);
+  assert.doesNotMatch(capsule.stdout, /decision after mark/);
+  assert.match(capsule.stdout, /Changed files were not captured for the selected historical continuation point/);
+  assert.match(capsule.stdout, /No next action was captured at or before the selected continuation point/);
+});
+
+test("continue can focus continuation from an event with the latest next action in scope", async (t) => {
+  const cwd = await tempWorkspace(t);
+  assert.equal(spawnSync(process.execPath, [cliPath, "start", "next scope"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "direction"], { cwd }).status, 0);
+  assert.equal(
+    spawnSync(
+      process.execPath,
+      [
+        cliPath,
+        "end",
+        "--changed",
+        "changed",
+        "--decision",
+        "decision",
+        "--next",
+        "continue from scoped next"
+      ],
+      { cwd }
+    ).status,
+    0
+  );
+
+  const preview = spawnSync(process.execPath, [cliPath, "continue", "latest", "--from", "evt-0005"], {
+    cwd,
+    encoding: "utf8"
+  });
+
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /Stateport continuation preview/);
+  assert.match(preview.stdout, /Event: evt-0005 next/);
+  assert.match(preview.stdout, /\[user-authored\] continue from scoped next/);
+});
+
+test("unknown or invalid continuation events are rejected", async (t) => {
+  const cwd = await tempWorkspace(t);
+  const { port } = await createPort("Unknown Event", { cwd, now: new Date("2026-05-21T00:00:00.000Z") });
+
+  const unknown = spawnSync(process.execPath, [cliPath, "capsule", "latest", "--from", "evt-9999"], { cwd, encoding: "utf8" });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /Unknown Semantic Timeline event: evt-9999/);
+  await assert.rejects(
+    () => readFile(path.join(stateportRoot(cwd), "rooms", port.port_id, "capsule.generic.md"), "utf8"),
+    /ENOENT/
+  );
+
+  const invalid = spawnSync(process.execPath, [cliPath, "continue", "latest", "--from", "../evt-0001"], { cwd, encoding: "utf8" });
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /Invalid Semantic Timeline event ID/);
+});
+
 test("generated artifacts are not overwritten after manual edits", async (t) => {
   const cwd = await tempWorkspace(t);
   await createPort("Overwrite Guard", { cwd, now: new Date("2026-05-21T00:00:00.000Z") });
@@ -249,6 +336,29 @@ test("schema-invalid port JSON blocks mutation with a Stateport error", async (t
   assert.notEqual(mark.status, 0);
   assert.match(mark.stderr, /Malformed Session Port JSON:/);
   assert.match(mark.stderr, /timeline/);
+});
+
+test("schema-invalid timeline event IDs and claims are rejected", async (t) => {
+  const cwd = await tempWorkspace(t);
+  const { port } = await createPort("Timeline Schema Guard", { cwd, now: new Date("2026-05-21T00:00:00.000Z") });
+  const portPath = path.join(cwd, ".stateport", "ports", `${port.port_id}.json`);
+  const tampered = {
+    ...port,
+    timeline: [
+      {
+        ...port.timeline[0],
+        event_id: "evt-9999",
+        claim: "trusted-by-default"
+      }
+    ]
+  };
+  await writeFile(portPath, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+
+  const capsule = spawnSync(process.execPath, [cliPath, "capsule", "latest", "--from", "evt-9999"], { cwd, encoding: "utf8" });
+
+  assert.notEqual(capsule.status, 0);
+  assert.match(capsule.stderr, /Malformed Session Port JSON:/);
+  assert.match(capsule.stderr, /timeline/);
 });
 
 test("invalid requested port IDs cannot escape the local store", async (t) => {

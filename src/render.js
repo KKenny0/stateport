@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { StateportError, assertValidPortId } from "./store.js";
+import { StateportError, assertValidEventId, assertValidPortId } from "./store.js";
 
 export const SUPPORTED_TARGETS = ["generic", "codex", "claude"];
 
@@ -25,6 +25,13 @@ function listEvents(events, emptyText) {
     .concat("\n");
 }
 
+function quoteText(text) {
+  return text
+    .split("\n")
+    .map((line) => `  > ${line}`)
+    .join("\n");
+}
+
 function gitSummary(port) {
   const git = port.git || {};
   if (!git.git_root) {
@@ -38,7 +45,11 @@ function gitSummary(port) {
   ].join("\n").concat("\n");
 }
 
-function changedFiles(port) {
+function changedFiles(port, options = {}) {
+  if (options.historical) {
+    return "- [unknown] Changed files were not captured for the selected historical continuation point.\n";
+  }
+
   if (!port.git?.git_root) {
     return "- [unknown] No git repository was available, so changed files were not captured.\n";
   }
@@ -55,6 +66,26 @@ function latestEventsByType(port, type) {
   return port.timeline.filter((event) => event.type === type);
 }
 
+function timelineThroughEvent(port, eventId) {
+  if (!eventId) {
+    return {
+      continuationPoint: null,
+      timeline: port.timeline
+    };
+  }
+
+  assertValidEventId(eventId);
+  const eventIndex = port.timeline.findIndex((event) => event.event_id === eventId);
+  if (eventIndex === -1) {
+    throw new StateportError(`Unknown Semantic Timeline event: ${eventId}`);
+  }
+
+  return {
+    continuationPoint: port.timeline[eventIndex],
+    timeline: port.timeline.slice(0, eventIndex + 1)
+  };
+}
+
 function targetIntro(target) {
   if (target === "codex") {
     return "You are Codex continuing work in this repo.";
@@ -67,17 +98,42 @@ function targetIntro(target) {
   return "You are a coding agent continuing work in this repo.";
 }
 
-export function renderCapsule(port, target = "generic") {
+function renderContinuationPoint(view) {
+  if (!view.continuationPoint) {
+    return "- [confirmed] Continue from the latest captured context.";
+  }
+
+  return [
+    `- [confirmed] Event: ${eventRef(view.continuationPoint)}`,
+    `- [${view.continuationPoint.claim}] Event text:`,
+    quoteText(view.continuationPoint.text)
+  ].join("\n");
+}
+
+export function renderCapsule(port, target = "generic", options = {}) {
   assertValidPortId(port.port_id);
 
   if (!SUPPORTED_TARGETS.includes(target)) {
     throw new StateportError(`Unknown capsule target "${target}". Supported targets: ${SUPPORTED_TARGETS.join(", ")}`);
   }
 
-  const decisions = latestEventsByType(port, "decision");
-  const marks = port.timeline.filter((event) => ["intent", "mark", "change", "next", "closed"].includes(event.type));
-  const verified = latestEventsByType(port, "verified");
-  const failed = latestEventsByType(port, "failed");
+  const view = timelineThroughEvent(port, options.from);
+  const scopedPort = {
+    ...port,
+    git: view.continuationPoint
+      ? {
+          ...view.continuationPoint.git,
+          changed_files: []
+        }
+      : port.git,
+    timeline: view.timeline
+  };
+  const decisions = latestEventsByType(scopedPort, "decision");
+  const marks = scopedPort.timeline.filter((event) => ["intent", "mark", "change", "next", "closed"].includes(event.type));
+  const verified = latestEventsByType(scopedPort, "verified");
+  const failed = latestEventsByType(scopedPort, "failed");
+  const nextActions = latestEventsByType(scopedPort, "next");
+  const nextAction = nextActions.at(-1)?.text || null;
 
   return [
     `# Stateport Agent Capsule (${target})`,
@@ -87,10 +143,13 @@ export function renderCapsule(port, target = "generic") {
     heading("Current Goal"),
     `- [user-authored] ${port.title} (source: ${port.port_id})`,
     "",
+    heading("Continuation Point"),
+    renderContinuationPoint(view),
+    "",
     heading("Confirmed Facts"),
     `- [confirmed] Workspace: ${port.workspace_path}`,
     `- [confirmed] Source port: .stateport/ports/${port.port_id}.json`,
-    gitSummary(port).trimEnd(),
+    gitSummary(scopedPort).trimEnd(),
     "",
     heading("Confirmed Decisions"),
     listEvents(decisions, "No decision has been captured in this port.").trimEnd(),
@@ -103,7 +162,7 @@ export function renderCapsule(port, target = "generic") {
     "- [unknown] No rejected path has been captured in this port.",
     "",
     heading("Files To Inspect First"),
-    changedFiles(port).trimEnd(),
+    changedFiles(scopedPort, { historical: Boolean(view.continuationPoint) }).trimEnd(),
     "",
     heading("Last Known Failing Command"),
     failed.length === 0
@@ -116,9 +175,9 @@ export function renderCapsule(port, target = "generic") {
       : listEvents(verified, "No verification command has been captured in this port.").trimEnd(),
     "",
     heading("Next Safest Action"),
-    port.next_action
-      ? `- [user-authored] ${port.next_action}`
-      : "- [unknown] No next action was captured in the closeout.",
+    nextAction
+      ? `- [user-authored] ${nextAction}`
+      : "- [unknown] No next action was captured at or before the selected continuation point.",
     "",
     heading("User-Authored Timeline"),
     listEvents(marks, "No user-authored timeline events were captured.").trimEnd(),
@@ -126,7 +185,10 @@ export function renderCapsule(port, target = "generic") {
     heading("Evidence References"),
     `- [confirmed] Port JSON: .stateport/ports/${port.port_id}.json`,
     `- [confirmed] Replay Room: .stateport/rooms/${port.port_id}/`,
-    changedFiles(port).trimEnd(),
+    view.continuationPoint
+      ? `- [confirmed] Continuation event: ${eventRef(view.continuationPoint)}`
+      : "- [confirmed] Continuation event: latest captured context",
+    changedFiles(scopedPort, { historical: Boolean(view.continuationPoint) }).trimEnd(),
     "",
     heading("Unknowns"),
     "- [unknown] Transcript content is unavailable in V0.",
