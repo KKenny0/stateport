@@ -1,0 +1,16 @@
+{
+  "name": "stateport",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "stateport": "./src/cli.js"
+  },
+  "scripts": {
+    "stateport": "node ./src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
