@@ -10,6 +10,8 @@ export class StateportError extends Error {
   }
 }
 
+export const USER_MARK_EVENT_TYPES = ["mark", "decision", "failed", "verified", "next"];
+
 export function slugify(input) {
   const slug = input
     .normalize("NFKD")
@@ -392,7 +394,12 @@ export async function loadRequestedPort(requestedId = "latest", options = {}) {
 
 export async function appendMark(text, options = {}) {
   if (!text || !text.trim()) {
-    throw new StateportError("Usage: stateport mark <text>");
+    throw new StateportError("Usage: stateport mark [--type <mark|decision|failed|verified|next>] <text>");
+  }
+
+  const type = options.type || "mark";
+  if (!USER_MARK_EVENT_TYPES.includes(type)) {
+    throw new StateportError(`Unknown Semantic Timeline mark type "${type}". Supported types: ${USER_MARK_EVENT_TYPES.join(", ")}`);
   }
 
   const cwd = options.cwd || process.cwd();
@@ -406,7 +413,10 @@ export async function appendMark(text, options = {}) {
     throw new StateportError(`Session Port is not active: ${port.port_id}`);
   }
   port.git = git;
-  port.timeline.push(makeEvent(port, "mark", text.trim(), cwd, git, "user-authored", now));
+  port.timeline.push(makeEvent(port, type, text.trim(), cwd, git, "user-authored", now));
+  if (type === "next") {
+    port.next_action = text.trim();
+  }
   port.updated_at = now.toISOString();
 
   await savePort(root, port);

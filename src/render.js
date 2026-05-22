@@ -197,10 +197,10 @@ export function renderCapsule(port, target = "generic", options = {}) {
     heading("Files To Inspect First"),
     changedFiles(scopedPort, { historical: Boolean(view.continuationPoint) }).trimEnd(),
     "",
-    heading("Last Known Failing Command"),
+    heading("Known Failed Attempts"),
     failed.length === 0
-      ? "- [unknown] No failing command has been captured in this port."
-      : listEvents(failed, "No failing command has been captured in this port.").trimEnd(),
+      ? "- [unknown] No failed attempt has been captured in this port."
+      : listEvents(failed, "No failed attempt has been captured in this port.").trimEnd(),
     "",
     heading("Verification Status"),
     verified.length === 0

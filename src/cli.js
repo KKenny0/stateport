@@ -5,14 +5,14 @@ import process from "node:process";
 import readline from "node:readline/promises";
 
 import { renderCapsule, renderTimeline, writeReplayRoom, SUPPORTED_TARGETS } from "./render.js";
-import { StateportError, appendMark, createPort, endPort, loadRequestedPort, recordHandoff, stateportRoot } from "./store.js";
+import { StateportError, USER_MARK_EVENT_TYPES, appendMark, createPort, endPort, loadRequestedPort, recordHandoff, stateportRoot } from "./store.js";
 
 function usage() {
   return `Stateport
 
 Usage:
   stateport start <title>
-  stateport mark <text>
+  stateport mark [--type <mark|decision|failed|verified|next>] <text>
   stateport end [--changed <text>] [--decision <text>] [--next <text>]
   stateport timeline <port-id|latest>
   stateport capsule <port-id|latest> --for <generic|codex|claude> [--from <event-id>]
@@ -108,9 +108,30 @@ async function run(argv) {
   }
 
   if (command === "mark") {
-    const text = textArg(args, "Usage: stateport mark <text>");
-    const { port } = await appendMark(text);
-    process.stdout.write(`Marked ${port.port_id}: ${text}\n`);
+    let parsed;
+    try {
+      parsed = parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          type: {
+            type: "string",
+            short: "t",
+            default: "mark"
+          }
+        }
+      });
+    } catch (error) {
+      throw new StateportError(error.message);
+    }
+    const type = parsed.values.type;
+    if (!USER_MARK_EVENT_TYPES.includes(type)) {
+      throw new StateportError(`Unknown Semantic Timeline mark type "${type}". Supported types: ${USER_MARK_EVENT_TYPES.join(", ")}`);
+    }
+
+    const text = textArg(parsed.positionals, "Usage: stateport mark [--type <mark|decision|failed|verified|next>] <text>");
+    const { port } = await appendMark(text, { type });
+    process.stdout.write(`Marked ${port.port_id} ${type}: ${text}\n`);
     return;
   }
 

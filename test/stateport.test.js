@@ -17,6 +17,12 @@ async function tempWorkspace(t) {
   return workspace;
 }
 
+function capsuleSection(body, title) {
+  const match = body.match(new RegExp(`## ${title}\\n\\n([\\s\\S]*?)(?:\\n\\n## |$)`));
+  assert.ok(match, `missing capsule section: ${title}`);
+  return match[1];
+}
+
 test("creates a Session Port with stable source-of-truth JSON", async (t) => {
   const cwd = await tempWorkspace(t);
   const now = new Date("2026-05-21T00:00:00.000Z");
@@ -43,6 +49,80 @@ test("mark appends timeline events without overwriting previous events", async (
   assert.deepEqual(second.port.timeline.map((event) => event.event_id), ["evt-0001", "evt-0002", "evt-0003"]);
   assert.equal(second.port.timeline[1].text, "first direction change");
   assert.equal(second.port.timeline[2].text, "second direction change");
+});
+
+test("typed marks record user-authored Semantic Timeline events for capsule trust", async (t) => {
+  const cwd = await tempWorkspace(t);
+  assert.equal(spawnSync(process.execPath, [cliPath, "start", "typed trust"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "--type", "decision", "manual evidence before automation"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "-t", "failed", "npm test failed before fix"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "--type", "verified", "npm test passed after fix"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "--type", "next", "inspect scoped capsule"], { cwd }).status, 0);
+
+  const timeline = spawnSync(process.execPath, [cliPath, "timeline", "latest"], { cwd, encoding: "utf8" });
+  assert.equal(timeline.status, 0, timeline.stderr);
+  assert.match(timeline.stdout, /evt-0002\s+.*decision\s+user-authored\s+manual evidence before automation/);
+  assert.match(timeline.stdout, /evt-0003\s+.*failed\s+user-authored\s+npm test failed before fix/);
+  assert.match(timeline.stdout, /evt-0004\s+.*verified\s+user-authored\s+npm test passed after fix/);
+  assert.match(timeline.stdout, /evt-0005\s+.*next\s+user-authored\s+inspect scoped capsule/);
+
+  const capsule = spawnSync(process.execPath, [cliPath, "capsule", "latest", "--for", "codex"], { cwd, encoding: "utf8" });
+  assert.equal(capsule.status, 0, capsule.stderr);
+  assert.match(capsuleSection(capsule.stdout, "Confirmed Decisions"), /manual evidence before automation/);
+  assert.match(capsuleSection(capsule.stdout, "Do Not Repeat"), /No rejected path has been captured/);
+  assert.match(capsuleSection(capsule.stdout, "Known Failed Attempts"), /npm test failed before fix/);
+  assert.match(capsuleSection(capsule.stdout, "Verification Status"), /npm test passed after fix/);
+  assert.match(capsuleSection(capsule.stdout, "Next Safest Action"), /\[user-authored\] inspect scoped capsule/);
+});
+
+test("typed mark validates event types before writing", async (t) => {
+  const cwd = await tempWorkspace(t);
+  await createPort("Type Guard", { cwd, now: new Date("2026-05-21T00:00:00.000Z") });
+
+  const invalid = spawnSync(process.execPath, [cliPath, "mark", "--type", "handoff", "not user-authored"], { cwd, encoding: "utf8" });
+
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /Unknown Semantic Timeline mark type "handoff"/);
+
+  const missingValue = spawnSync(process.execPath, [cliPath, "mark", "--type"], { cwd, encoding: "utf8" });
+  assert.notEqual(missingValue.status, 0);
+  assert.match(missingValue.stderr, /argument missing/);
+
+  const { port } = await loadRequestedPort("latest", { cwd });
+  assert.equal(port.timeline.length, 1);
+});
+
+test("typed next marks are scoped by selected continuation event", async (t) => {
+  const cwd = await tempWorkspace(t);
+  assert.equal(spawnSync(process.execPath, [cliPath, "start", "typed next scope"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "--type", "decision", "choose manual trust"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "--type", "next", "inspect typed next"], { cwd }).status, 0);
+  assert.equal(
+    spawnSync(
+      process.execPath,
+      [
+        cliPath,
+        "end",
+        "--changed",
+        "closed later",
+        "--decision",
+        "closeout decision",
+        "--next",
+        "inspect closeout next"
+      ],
+      { cwd }
+    ).status,
+    0
+  );
+
+  const scoped = spawnSync(process.execPath, [cliPath, "continue", "latest", "--from", "evt-0003"], {
+    cwd,
+    encoding: "utf8"
+  });
+
+  assert.equal(scoped.status, 0, scoped.stderr);
+  assert.match(capsuleSection(scoped.stdout, "Next Safest Action"), /inspect typed next/);
+  assert.doesNotMatch(capsuleSection(scoped.stdout, "Next Safest Action"), /inspect closeout next/);
 });
 
 test("end records closeout answers and capsule labels evidence strength", async (t) => {

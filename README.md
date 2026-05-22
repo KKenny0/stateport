@@ -9,11 +9,24 @@ It turns interrupted work into replayable continuation points: open a Session Po
 ```bash
 npm run stateport -- start "demo continuation"
 npm run stateport -- mark "first meaningful direction change"
+npm run stateport -- mark --type decision "prove the CLI/data contract before TUI work"
+npm run stateport -- mark --type verified "npm test passed"
 npm run stateport -- end
 npm run stateport -- timeline latest
 npm run stateport -- capsule latest --for codex
 npm run stateport -- continue latest
 ```
+
+Typed marks make the Semantic Timeline more useful before the end ritual:
+
+```bash
+npm run stateport -- mark --type decision "accepted a product or technical direction"
+npm run stateport -- mark --type failed "a command, attempt, or path failed"
+npm run stateport -- mark --type verified "a check or manual acceptance passed"
+npm run stateport -- mark --type next "the next safest action changed"
+```
+
+When `--type` is omitted, `mark` records a regular user-authored timeline mark.
 
 To continue from a specific Semantic Timeline moment, pass its event id:
 
