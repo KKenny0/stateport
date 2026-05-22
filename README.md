@@ -10,6 +10,7 @@ It turns interrupted work into replayable continuation points: open a Session Po
 npm run stateport -- start "demo continuation"
 npm run stateport -- mark "first meaningful direction change"
 npm run stateport -- end
+npm run stateport -- timeline latest
 npm run stateport -- capsule latest --for codex
 npm run stateport -- continue latest
 ```
@@ -19,6 +20,12 @@ To continue from a specific Semantic Timeline moment, pass its event id:
 ```bash
 npm run stateport -- capsule latest --for codex --from evt-0002
 npm run stateport -- continue latest --from evt-0002
+```
+
+Use `timeline` to find available event ids:
+
+```bash
+npm run stateport -- timeline latest
 ```
 
 `--from` filters the rendered capsule at output time. It does not mutate the source port JSON and does not create separate partial Replay Room files.

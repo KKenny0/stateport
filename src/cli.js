@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import process from "node:process";
 import readline from "node:readline/promises";
 
-import { renderCapsule, writeReplayRoom, SUPPORTED_TARGETS } from "./render.js";
+import { renderCapsule, renderTimeline, writeReplayRoom, SUPPORTED_TARGETS } from "./render.js";
 import { StateportError, appendMark, createPort, endPort, loadRequestedPort, recordHandoff, stateportRoot } from "./store.js";
 
 function usage() {
@@ -14,6 +14,7 @@ Usage:
   stateport start <title>
   stateport mark <text>
   stateport end [--changed <text>] [--decision <text>] [--next <text>]
+  stateport timeline <port-id|latest>
   stateport capsule <port-id|latest> --for <generic|codex|claude> [--from <event-id>]
   stateport continue <port-id|latest> [--for <generic|codex|claude>] [--from <event-id>]
 `;
@@ -139,6 +140,13 @@ async function run(argv) {
     const capsule = renderCapsule(port, target, { from });
     await writeReplayRoom(port, stateportRoot(root));
     process.stdout.write(capsule);
+    return;
+  }
+
+  if (command === "timeline") {
+    const id = args[0] || "latest";
+    const { port } = await loadRequestedPort(id);
+    process.stdout.write(renderTimeline(port, { selector: id }));
     return;
   }
 

@@ -14,6 +14,17 @@ function eventRef(event) {
   return `${event.event_id} ${event.type} ${event.created_at}`;
 }
 
+function singleLine(text, maxLength = 88) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "(empty)";
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 1)}...`;
+}
+
 function listEvents(events, emptyText) {
   if (events.length === 0) {
     return `- [unknown] ${emptyText}\n`;
@@ -107,6 +118,28 @@ function renderContinuationPoint(view) {
     `- [confirmed] Event: ${eventRef(view.continuationPoint)}`,
     `- [${view.continuationPoint.claim}] Event text:`,
     quoteText(view.continuationPoint.text)
+  ].join("\n");
+}
+
+export function renderTimeline(port, options = {}) {
+  assertValidPortId(port.port_id);
+  const selector = options.selector || port.port_id;
+  const rows = port.timeline.map((event) => {
+    const timestamp = event.created_at.slice(0, 19);
+    return `${event.event_id}  ${timestamp}  ${event.type.padEnd(8)}  ${event.claim.padEnd(13)}  ${singleLine(event.text)}`;
+  });
+
+  return [
+    `Stateport Semantic Timeline: ${port.title}`,
+    `Port: ${port.port_id}`,
+    `Workspace: ${port.workspace_path}`,
+    "",
+    rows.length === 0 ? "No Semantic Timeline events captured." : rows.join("\n"),
+    "",
+    "Continue from a moment:",
+    `  stateport continue ${selector} --from <event-id>`,
+    `  stateport capsule ${selector} --for codex --from <event-id>`,
+    ""
   ].join("\n");
 }
 

@@ -174,6 +174,38 @@ test("CLI smoke flow creates replay room artifacts and supports latest", async (
   assert.match(await readFile(path.join(room, "capsule.claude.md"), "utf8"), /Stateport Agent Capsule \(claude\)/);
 });
 
+test("timeline lists Semantic Timeline event ids without generating Replay Room artifacts", async (t) => {
+  const cwd = await tempWorkspace(t);
+  assert.equal(spawnSync(process.execPath, [cliPath, "start", "timeline discovery"], { cwd }).status, 0);
+  assert.equal(spawnSync(process.execPath, [cliPath, "mark", "multi\nline semantic mark"], { cwd }).status, 0);
+
+  const timeline = spawnSync(process.execPath, [cliPath, "timeline", "latest"], { cwd, encoding: "utf8" });
+
+  assert.equal(timeline.status, 0, timeline.stderr);
+  assert.match(timeline.stdout, /Stateport Semantic Timeline: timeline discovery/);
+  assert.match(timeline.stdout, /evt-0001\s+.*intent\s+user-authored\s+timeline discovery/);
+  assert.match(timeline.stdout, /evt-0002\s+.*mark\s+user-authored\s+multi line semantic mark/);
+  assert.match(timeline.stdout, /stateport continue latest --from <event-id>/);
+  assert.match(timeline.stdout, /stateport capsule latest --for codex --from <event-id>/);
+
+  const { port } = await loadRequestedPort("latest", { cwd });
+  await assert.rejects(
+    () => readFile(path.join(stateportRoot(cwd), "rooms", port.port_id, "replay.md"), "utf8"),
+    /ENOENT/
+  );
+});
+
+test("timeline supports explicit port ids", async (t) => {
+  const cwd = await tempWorkspace(t);
+  const { port } = await createPort("Explicit Timeline", { cwd, now: new Date("2026-05-21T00:00:00.000Z") });
+
+  const timeline = spawnSync(process.execPath, [cliPath, "timeline", port.port_id], { cwd, encoding: "utf8" });
+
+  assert.equal(timeline.status, 0, timeline.stderr);
+  assert.match(timeline.stdout, new RegExp(`Port: ${port.port_id}`));
+  assert.match(timeline.stdout, new RegExp(`stateport continue ${port.port_id} --from <event-id>`));
+});
+
 test("capsule can focus continuation from a specific Semantic Timeline event", async (t) => {
   const cwd = await tempWorkspace(t);
   assert.equal(spawnSync(process.execPath, [cliPath, "start", "focused continuation"], { cwd }).status, 0);
